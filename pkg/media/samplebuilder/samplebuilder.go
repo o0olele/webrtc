@@ -2,6 +2,8 @@
 package samplebuilder
 
 import (
+	"time"
+
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3/pkg/media"
 )
@@ -84,7 +86,9 @@ func (s *SampleBuilder) buildSample(firstBuffer uint16) (*media.Sample, uint32) 
 			for j := firstBuffer; j < i; j++ {
 				s.buffer[j] = nil
 			}
-			return &media.Sample{Data: data, Samples: samples}, s.lastPopTimestamp
+
+			// TODO Sean-Der caller needs to pass in sample-rate
+			return &media.Sample{Data: data, Duration: time.Duration(samples)}, s.lastPopTimestamp
 		}
 
 		p, err := s.depacketizer.Unmarshal(s.buffer[i].Payload)

@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/sclevine/agouti"
 
-	"github.com/pion/randutil"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
 )
@@ -331,31 +329,16 @@ func parseLog(log agouti.Log) (string, string, bool) {
 }
 
 func createTrack(offer webrtc.SessionDescription) (*webrtc.PeerConnection, *webrtc.SessionDescription, *webrtc.Track, error) {
-	mediaEngine := webrtc.MediaEngine{}
-	if err := mediaEngine.PopulateFromSDP(offer); err != nil {
-		return nil, nil, nil, err
-	}
-	var payloadType uint8
-	for _, videoCodec := range mediaEngine.GetCodecsByKind(webrtc.RTPCodecTypeAudio) {
-		if videoCodec.Name == webrtc.Opus {
-			payloadType = videoCodec.PayloadType
-			break
-		}
-	}
-	if payloadType == 0 {
-		return nil, nil, nil, errors.New("Remote peer does not support VP8")
-	}
-	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-	pc, errPc := api.NewPeerConnection(webrtc.Configuration{})
+	pc, errPc := webrtc.NewPeerConnection(webrtc.Configuration{})
 	if errPc != nil {
 		return nil, nil, nil, errPc
 	}
 
-	track, errTrack := pc.NewTrack(payloadType, randutil.NewMathRandomGenerator().Uint32(), "video", "pion")
+	track, errTrack := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: "video/vp8"}, "video", "pion")
 	if errTrack != nil {
 		return nil, nil, nil, errTrack
 	}
-	if _, err := pc.AddTrack(track); err != nil {
+	if _, err := pc.AddTransceiverFromTrack(track); err != nil {
 		return nil, nil, nil, err
 	}
 	if err := pc.SetRemoteDescription(offer); err != nil {

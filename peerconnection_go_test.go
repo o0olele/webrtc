@@ -301,7 +301,7 @@ func TestPeerConnection_EventHandlers_Go(t *testing.T) {
 	assert.NotPanics(t, func() { pc.onTrack(nil, nil) })
 	assert.NotPanics(t, func() { pc.onICEConnectionStateChange(ice.ConnectionStateNew) })
 
-	pc.OnTrack(func(t *Track, r *RTPReceiver) {
+	pc.OnTrack(func(t *TrackRemote, r *RTPReceiver) {
 		close(onTrackCalled)
 	})
 
@@ -323,7 +323,7 @@ func TestPeerConnection_EventHandlers_Go(t *testing.T) {
 	assert.NotPanics(t, func() { go pc.onDataChannelHandler(nil) })
 
 	// Verify that the set handlers are called
-	assert.NotPanics(t, func() { pc.onTrack(&Track{}, &RTPReceiver{}) })
+	assert.NotPanics(t, func() { pc.onTrack(&TrackRemote{}, &RTPReceiver{}) })
 	assert.NotPanics(t, func() { pc.onICEConnectionStateChange(ice.ConnectionStateNew) })
 	assert.NotPanics(t, func() { go pc.onDataChannelHandler(&DataChannel{api: api}) })
 
@@ -936,13 +936,14 @@ type trackRecords struct {
 	receivedTrackIDs map[string]struct{}
 }
 
-func (r *trackRecords) newTrackParameter() (uint8, uint32, string, string) {
+func (r *trackRecords) newTrack() (*TrackLocalStaticRTP, error) {
 	trackID := fmt.Sprintf("pion-track-%d", len(r.trackIDs))
+	track, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: "video/vp8"}, trackID, "pion")
 	r.trackIDs[trackID] = struct{}{}
-	return DefaultPayloadTypeVP8, uint32(len(r.trackIDs)), trackID, "pion"
+	return track, err
 }
 
-func (r *trackRecords) handleTrack(t *Track, _ *RTPReceiver) {
+func (r *trackRecords) handleTrack(t *TrackRemote, _ *RTPReceiver) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	tID := t.ID()
@@ -965,7 +966,7 @@ func TestPeerConnection_MassiveTracks(t *testing.T) {
 			trackIDs:         make(map[string]struct{}),
 			receivedTrackIDs: make(map[string]struct{}),
 		}
-		tracks          = []*Track{}
+		tracks          = []*TrackLocalStaticRTP{}
 		trackCount      = 256
 		pingInterval    = 1 * time.Second
 		noiseInterval   = 100 * time.Microsecond
@@ -981,7 +982,6 @@ func TestPeerConnection_MassiveTracks(t *testing.T) {
 				ExtensionProfile: 1,
 				Version:          2,
 				PayloadOffset:    20,
-				PayloadType:      DefaultPayloadTypeVP8,
 				SequenceNumber:   27023,
 				Timestamp:        3653407706,
 				CSRC:             []uint32{},
@@ -991,14 +991,14 @@ func TestPeerConnection_MassiveTracks(t *testing.T) {
 		connected = make(chan struct{})
 		stopped   = make(chan struct{})
 	)
-	api.mediaEngine.RegisterDefaultCodecs()
+	assert.NoError(t, api.mediaEngine.RegisterDefaultCodecs())
 	offerPC, answerPC, err := api.newPair(Configuration{})
 	assert.NoError(t, err)
 	// Create massive tracks.
 	for range make([]struct{}, trackCount) {
-		track, err := offerPC.NewTrack(tRecs.newTrackParameter())
+		track, err := tRecs.newTrack()
 		assert.NoError(t, err)
-		_, err = offerPC.AddTrack(track)
+		_, err = offerPC.AddTransceiverFromTrack(track)
 		assert.NoError(t, err)
 		tracks = append(tracks, track)
 	}
@@ -1026,7 +1026,6 @@ func TestPeerConnection_MassiveTracks(t *testing.T) {
 	<-connected
 	time.Sleep(1 * time.Second)
 	for _, track := range tracks {
-		samplePkt.SSRC = track.SSRC()
 		assert.NoError(t, track.WriteRTP(samplePkt))
 	}
 	// Ping trackRecords to see if any track event not received yet.
